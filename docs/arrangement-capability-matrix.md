@@ -91,6 +91,25 @@ The fork contains a scoped-reference foundation and six isolated unit tests.
 The tests cover unrelated edits, deleted clips, deleted tracks, Set replacement, reconnects, and unknown handles.
 These references are not yet connected to command dispatch.
 
+The fork also exposes `save_and_inspect_arrangement_automation` through MCP.
+The tool requires an existing `.als` path and explicit confirmation that the path belongs to the open Set.
+It attempts the API save, then checks for a stable file update.
+An unavailable save or an unverified update returns `needs_manual_save` without automation data.
+After the user saves manually, `manual_save_confirmed=true` reads the stable snapshot without another API save.
+
+The result retains event attributes, sentinel times, curve controls, and complete envelope XML.
+It identifies track IDs and automation target IDs from the saved file.
+Parameter candidates are XML element names, not live parameter handles or verified unique addresses.
+Session clip envelopes are excluded. Snapshot data does not claim equivalence with unsaved Live state.
+
+An optional `expected_sha256` rejects a different saved snapshot.
+This digest check does not establish snapshot freshness relative to unsaved Live edits.
+Compressed and expanded size limits bound file reads.
+
+The full fork test suite reports 145 passed and one skipped.
+Lint passes for the new implementation and related registration tests.
+These automated results do not establish Live API support or acceptance.
+
 No Live commands ran during this investigation. No acceptance checks passed yet.
 No installer changes or package-pin changes were made.
 

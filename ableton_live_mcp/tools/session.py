@@ -418,6 +418,32 @@ def get_scale_info(ctx: Context) -> str:
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=False))
+def save_and_inspect_arrangement_automation(
+    ctx: Context, path: str, active_set_confirmed: bool = False,
+    manual_save_confirmed: bool = False, expected_sha256: str | None = None,
+) -> str:
+    """Save the open Set and inspect its saved Arrangement automation.
+
+    Saving overwrites the existing Set file. Require user authorization and an
+    explicit existing .als path. Set active_set_confirmed only after the user
+    confirms that exact path belongs to the open Set. The API cannot verify
+    that association. If status is needs_manual_save, ask the user to save in
+    Live. Retry with manual_save_confirmed only after their confirmation.
+    No tracks or clips are created. Raw saved events are not unsaved Live state.
+    """
+    from ._arrangement_snapshot import save_then_inspect
+
+    try:
+        result = save_then_inspect(
+            path, lambda: get_ableton_connection().send_command("try_save_project"),
+            active_set_confirmed, manual_save_confirmed, expected_sha256,
+        )
+    except (ValueError, OSError, EOFError) as exc:
+        result = {"status": "snapshot_error", "message": str(exc)}
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=False))
 def save_set(ctx: Context) -> str:
     """Save the current Live set to its existing file, if the Live API supports it
     (it does not on most versions). Returns whether the API call is available and

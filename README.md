@@ -11,7 +11,7 @@
 **Website and installation guide: [abletonmcp.com](https://abletonmcp.com)**
 
 Control Ableton Live from an AI assistant. This is a Model Context Protocol (MCP)
-server that gives Claude, Cursor, Codex, or any MCP client 156 tools for building
+server that gives Claude, Cursor, Codex, or any MCP client 157 tools for building
 tracks, editing MIDI, loading instruments and effects, mixing, and mastering inside
 a running Ableton Live set, plus offline tools that read and diff saved `.als`
 project files with Live closed.
@@ -146,7 +146,7 @@ restarting Live keeps the bridge's snapshot format matched to the server.
 
 ## Focusing the toolset
 
-The server registers 156 tools. That is a lot for a model to choose from on a small
+The server registers 157 tools. That is a lot for a model to choose from on a small
 task. Set `ABLETON_TOOLSETS` to load only the groups you need, for example
 `ABLETON_TOOLSETS=session,tracks,clips,generators`. Groups (each may span several modules): `session`, `tracks`, `clips`, `devices`,
 `browser`, `arrangement`, `generators`, `audio`, `analysis`, `offline`, `recipes`.
@@ -218,7 +218,7 @@ saved `.als` projects.
 
 ### How is this different from other Ableton MCP servers?
 
-This server exposes 156 specific, validated tools rather than an arbitrary-code
+This server exposes 157 specific, validated tools rather than an arbitrary-code
 execution tool. It includes destructive/read-only hints, workflow prompts, built-in
 music generators, mixing and analysis tools, and offline `.als`/`.adg` inspection.
 The Remote Script and MCP package are versioned and tested together.
