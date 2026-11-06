@@ -1,6 +1,7 @@
 include CHANGELOG.md SECURITY.md CONTRIBUTING.md
 include manifest.json server.json glama.json
-include scripts/export_tool_catalog.py
+include scripts/export_tool_catalog.py scripts/create_arrangement_fixture.py
+include docs/arrangement-capability-matrix.md docs/arrangement-reconstruction-contract.md docs/arrangement-acceptance.md
 prune plugins
 exclude RELEASE_CHECKLIST.md
 exclude scripts/package_plugin.py

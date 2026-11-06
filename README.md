@@ -2,6 +2,20 @@
 
 # Ableton Live MCP Server
 
+## Maintained Arrangement fork
+
+This branch contains the `1.8.2.dev14` acceptance candidate for
+[ableton-ctrl issue #14](https://github.com/andrewmarous/ableton-ctrl/issues/14).
+Use the [acceptance guide](docs/arrangement-acceptance.md) for fork installation.
+The [capability matrix](docs/arrangement-capability-matrix.md) and
+[reconstruction contract](docs/arrangement-reconstruction-contract.md) describe limitations.
+
+The new editing tools require Live 12.4 or later and explicit authorization.
+They operate on existing tracks. Production acceptance is still pending.
+The upstream `1.8.1` commands below do **not** install this candidate.
+
+## Upstream documentation
+
 [![CI](https://github.com/wstierhout/ableton-live-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/wstierhout/ableton-live-mcp/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/wstierhout/ableton-live-mcp)](https://github.com/wstierhout/ableton-live-mcp/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -11,7 +25,7 @@
 **Website and installation guide: [abletonmcp.com](https://abletonmcp.com)**
 
 Control Ableton Live from an AI assistant. This is a Model Context Protocol (MCP)
-server that gives Claude, Cursor, Codex, or any MCP client 157 tools for building
+server that gives Claude, Cursor, Codex, or any MCP client 160 tools for building
 tracks, editing MIDI, loading instruments and effects, mixing, and mastering inside
 a running Ableton Live set, plus offline tools that read and diff saved `.als`
 project files with Live closed.
@@ -146,7 +160,7 @@ restarting Live keeps the bridge's snapshot format matched to the server.
 
 ## Focusing the toolset
 
-The server registers 157 tools. That is a lot for a model to choose from on a small
+The server registers 160 tools. That is a lot for a model to choose from on a small
 task. Set `ABLETON_TOOLSETS` to load only the groups you need, for example
 `ABLETON_TOOLSETS=session,tracks,clips,generators`. Groups (each may span several modules): `session`, `tracks`, `clips`, `devices`,
 `browser`, `arrangement`, `generators`, `audio`, `analysis`, `offline`, `recipes`.
@@ -218,7 +232,7 @@ saved `.als` projects.
 
 ### How is this different from other Ableton MCP servers?
 
-This server exposes 157 specific, validated tools rather than an arbitrary-code
+This server exposes 160 specific, validated tools rather than an arbitrary-code
 execution tool. It includes destructive/read-only hints, workflow prompts, built-in
 music generators, mixing and analysis tools, and offline `.als`/`.adg` inspection.
 The Remote Script and MCP package are versioned and tested together.

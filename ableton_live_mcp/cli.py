@@ -25,7 +25,23 @@ def _remote_scripts_dir(user_library=None):
 
 
 def _remote_script_source():
-    return resources.files(__package__).joinpath("remote_script", "__init__.py").read_bytes()
+    folder = resources.files(__package__).joinpath("remote_script")
+    source = folder.joinpath("__init__.py").read_text(encoding="utf-8")
+    engine = folder.joinpath("arrangement_engine.py").read_text(encoding="utf-8")
+    marker = "from .arrangement_engine import ArrangementEngine  # bundled by installer"
+    if source.count(marker) != 1:
+        raise ValueError("Remote Script bundle marker is missing or ambiguous")
+    bundled = source.replace(marker, engine)
+    build_id = hashlib.sha256(bundled.encode("utf-8")).hexdigest()
+    return bundled.replace(
+        'BRIDGE_BUILD_ID = "development-unbundled"',
+        'BRIDGE_BUILD_ID = "' + build_id + '"',
+    ).encode("utf-8")
+
+
+def _remote_script_build_id():
+    source = _remote_script_source()
+    return source.split(b'BRIDGE_BUILD_ID = "', 1)[1].split(b'"', 1)[0].decode("ascii")
 
 
 def _target(user_library=None):
@@ -131,6 +147,7 @@ def doctor(user_library=None, json_output=False):
         "script_installed": installed,
         "script_matches_package": installed and dest.read_bytes() == source,
         "expected_sha256": hashlib.sha256(source).hexdigest(),
+        "expected_build_id": _remote_script_build_id(),
         "host": ABLETON_HOST,
         "port": ABLETON_PORT,
         "reachable": False,
@@ -142,7 +159,11 @@ def doctor(user_library=None, json_output=False):
             reachable=True,
             live_version=live.get("live_version"),
             running_script_version=live.get("bridge_version"),
-            running_script_matches=live.get("bridge_version") == __version__,
+            running_script_build_id=live.get("bridge_build_id"),
+            running_script_matches=(
+                live.get("bridge_version") == __version__
+                and live.get("bridge_build_id") == report["expected_build_id"]
+            ),
         )
     except (OSError, ValueError) as exc:
         report["error"] = str(exc)

@@ -5,7 +5,7 @@ import pytest
 
 from ableton_live_mcp.tools import _arrangement_snapshot as snapshots
 
-XML = b'''<Ableton Creator="Live 12"><LiveSet><Tracks><MidiTrack Id="7">
+XML = b"""<Ableton Creator="Live 12"><LiveSet><Tracks><MidiTrack Id="7">
 <Name><EffectiveName Value="Bass"/></Name>
 <DeviceChain><Mixer><Volume><AutomationTarget Id="42"/></Volume></Mixer></DeviceChain>
 <AutomationEnvelopes><Envelopes><AutomationEnvelope Id="3">
@@ -16,7 +16,7 @@ XML = b'''<Ableton Creator="Live 12"><LiveSet><Tracks><MidiTrack Id="7">
 <ClipSlots><ClipSlot><Clip><MidiClip><AutomationEnvelopes><Envelopes>
 <AutomationEnvelope Id="99"/></Envelopes></AutomationEnvelopes>
 </MidiClip></Clip></ClipSlot></ClipSlots>
-</MidiTrack></Tracks></LiveSet></Ableton>'''
+</MidiTrack></Tracks></LiveSet></Ableton>"""
 
 
 @pytest.fixture
@@ -47,6 +47,7 @@ def test_stale_digest_rejected(saved_set):
 def test_no_save_without_active_set_confirmation(saved_set):
     def forbidden():
         pytest.fail("Must not save without path confirmation")
+
     result = snapshots.save_then_inspect(saved_set, forbidden)
     assert result["status"] == "needs_active_set_confirmation"
 
@@ -60,7 +61,9 @@ def test_unavailable_or_failed_save_requires_manual_save(saved_set, reply):
 
 def test_success_without_file_update_is_not_verified(saved_set):
     result = snapshots.save_then_inspect(
-        saved_set, lambda: {"available": True, "saved": True}, True,
+        saved_set,
+        lambda: {"available": True, "saved": True},
+        True,
     )
     assert result["status"] == "needs_manual_save"
 
@@ -69,6 +72,7 @@ def test_success_and_changed_file_returns_snapshot(saved_set):
     def save():
         saved_set.write_bytes(gzip.compress(XML.replace(b'Value="0.8"', b'Value="0.9"')))
         return {"available": True, "saved": True}
+
     result = snapshots.save_then_inspect(saved_set, save, True)
     assert result["status"] == "snapshot_ready"
     assert result["verification"] == "api_success_and_file_change"
@@ -78,6 +82,7 @@ def test_success_and_changed_file_returns_snapshot(saved_set):
 def test_manual_confirmation_does_not_attempt_api_save(saved_set):
     def forbidden():
         pytest.fail("Manual confirmation must not save again")
+
     result = snapshots.save_then_inspect(saved_set, forbidden, True, True)
     assert result["verification"] == "user_confirmed_manual_save"
 
@@ -85,6 +90,7 @@ def test_manual_confirmation_does_not_attempt_api_save(saved_set):
 def test_file_changes_during_snapshot_rejected(saved_set, monkeypatch):
     def change(_):
         saved_set.write_bytes(gzip.compress(XML + b"\n"))
+
     monkeypatch.setattr(snapshots.time, "sleep", change)
     with pytest.raises(snapshots.SnapshotError, match="not stable"):
         snapshots.read_snapshot(saved_set)
@@ -99,7 +105,11 @@ def test_wrong_root_rejected(saved_set):
 def test_manual_save_stale_digest_rejected(saved_set):
     with pytest.raises(snapshots.SnapshotError, match="expected snapshot"):
         snapshots.save_then_inspect(
-            saved_set, lambda: None, True, True, expected_sha256="old",
+            saved_set,
+            lambda: None,
+            True,
+            True,
+            expected_sha256="old",
         )
 
 

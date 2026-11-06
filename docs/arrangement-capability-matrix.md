@@ -1,126 +1,86 @@
-# Arrangement editing: capability investigation
+# Arrangement capability matrix
 
-Status: blocked on an approved alternative for Arrangement automation. This is not an implementation or acceptance claim.
+Status: acceptance candidate. No Live acceptance result is claimed.
 
-## Decisions
-
-- Target the latest stable Live version. Verify the exact installed version before acceptance.
-- Maintain the bridge in https://github.com/andrewmarous/ableton-live-mcp.
-- Keep the existing package pin until matching server and Remote Script artifacts pass verification.
-- The user performs acceptance in a disposable Set before issue #14 closes.
-- The user approved save-then-inspect: attempt MCP `save_set`, verify the saved file, then inspect its automation.
-- If the API save is unavailable or unverified, request a manual save before snapshot inspection.
-- Keep edits on existing tracks. This decision does not authorize temporary clip replacement or carrier stamping.
-- Do not modify a production Set during development.
-
-The local fork is `../ableton-live-mcp`, on branch `issue-14-arrangement`.
-The starting source is upstream tag `v1.8.1`.
-
-## Evidence and version limits
-
-The current [official LOM reference](https://docs.cycling74.com/apiref/lom/) identifies Live 12.4.5.
-Documentation version does not establish the latest stable release available to the user.
-
-The Python runtime reference is unofficial and identifies Live 12 without an exact patch version.
-Third-party experiments identify 12.4.6 and 12.4.15b1. These results require independent verification in the target installation.
-Older versions are outside the initial support target. No version receives a full-support claim from this investigation.
+The implementation targets Live 12.4 or later. Acceptance uses the latest stable release available to the user.
+The maintainer fork is https://github.com/andrewmarous/ableton-live-mcp, branch `issue-14-arrangement`.
+The starting upstream source is tag `v1.8.1`. The candidate version is `1.8.2.dev14`.
+Older Live versions receive a structured `unsupported_version` error for the new commands.
+No cross-platform or edition-specific acceptance result exists yet.
 
 ## Capability matrix
 
-| Requirement | Native route and evidence | Remaining work or limitation |
+| Requirement | Implementation | Evidence and limits |
 | --- | --- | --- |
-| Duplicate audio and MIDI Arrangement clips | `Track.duplicate_clip_to_arrangement(clip, destination_time)` explicitly accepts Arrangement sources in the [Track reference](https://docs.cycling74.com/apiref/lom/track/). | Validate overlaps before copying. Same-track support first. Reject cross-track requests until preservation tests establish support. Native duplication does not establish timeline automation preservation. |
-| Read and edit MIDI notes | The [Clip reference](https://docs.cycling74.com/apiref/lom/clip/) covers Session and Arrangement clips. It exposes extended note reads, additions, ID-based removal, and modifications. | Validate note IDs before mutation. Preserve extended note properties. Define an explicit replacement command. Reject edits that cause Live to modify unrelated overlapping notes. |
-| Read and edit audio properties | The [Clip reference](https://docs.cycling74.com/apiref/lom/clip/) exposes source markers, gain, coarse/fine pitch, warping, and warp mode. The [Python reference](https://midiremotescripts.structure-void.com/reference/live12/Live.Clip.runtime) exposes warp-marker operations. | Source markers are not timeline edges. Python marker units depend on warping. Validate available modes and source units. Never crop or rewrite source files. Shared-source effects require live verification. |
-| Trim, move, and split | The [Clip reference](https://docs.cycling74.com/apiref/lom/clip/) marks `start_time` and `end_time` read-only. The [Track runtime reference](https://midiremotescripts.structure-void.com/reference/live12/Live.Track.runtime) provides duplication and deletion, but no direct timeline split or move method. | Copy/delete and reconstruction require separate preservation contracts. Writable source markers do not prove timeline trim support. Timeline automation cannot currently be read for transfer. Loops, offsets, and boundary splits remain unverified. |
-| Read and write Arrangement automation | The [Python Clip reference](https://midiremotescripts.structure-void.com/reference/live12/Live.Clip.runtime) explicitly states that `automation_envelope` returns `None` for Arrangement clips. | No documented native lane/breakpoint interface was identified. Session envelopes are not Arrangement lanes. Exact inspection and preservation cannot be promised through the current bridge. |
+| Duplicate existing audio and MIDI clips | Native `Track.duplicate_clip_to_arrangement`, with a scoped source reference and absolute destination beats. | The [Track API](https://docs.cycling74.com/apiref/lom/track/) explicitly accepts Arrangement sources. Same-track only. All destination overlaps are rejected. Track automation stays at absolute positions and is not copied with clips. |
+| Read and edit MIDI notes | Extended note inspection includes IDs and expressive properties. ID-based add, update, and delete preserve other notes. `replace_notes` explicitly replaces all notes. | The [Clip API](https://docs.cycling74.com/apiref/lom/clip/) covers Arrangement clips. Same-pitch overlaps are rejected before mutation. Note times are source-relative beats, not Arrangement beats. No reduced-schema reconstruction fallback exists. |
+| Read and edit audio properties | Source and loop markers, gain, pitch, warp mode, and warping. Native warp-marker add, move, and remove have range checks. | The [Clip API](https://docs.cycling74.com/apiref/lom/clip/) documents these properties and marker operations. Sample times are seconds. Source marker units depend on warping. Terminal warp-reference edits are rejected. Source audio bytes are not rewritten. Deferred warping changes require a later inspection. |
+| Trim, move, and split | Native recovery copies in a holding area. Temporary Session clips truncate working copies. Original clips are removed only after working copies exist. | `start_time` and `end_time` are read-only in the [Clip API](https://docs.cycling74.com/apiref/lom/clip/). [External experiments](https://github.com/adamjmurray/producer-pal/blob/main/dev/live-api/arrangement-operations/core-techniques.md) describe native overlap truncation. Only inward, positive-length trims are supported. Boundary splits are no-ops. Timeline automation stays at absolute positions. Loop and source-offset preservation require Live acceptance. |
+| Read and write Arrangement automation | Saved-file inspection retains raw events, curves, target IDs, and XML paths. A Session carrier writes linear or step automation over an explicit range on the existing track. Native copies restore displaced clips. | The [Python API reference](https://midiremotescripts.structure-void.com/reference/live12/Live.Clip.runtime) states that Arrangement `automation_envelope` returns `None`. [External experiments](https://github.com/adamjmurray/producer-pal/blob/main/dev/live-api/arrangement-automation.md) document carrier writes. Enabled continuous mixer and device parameters on regular tracks with audio output are the initial supported subset. Returns, master lanes, quantized parameters, curved writes, and lane deletion are rejected or unavailable. Outside-range preservation requires Live acceptance. |
 
-## Automation blocker
+The official [LOM index](https://docs.cycling74.com/apiref/lom/) identifies its documented Live version.
+The unofficial Python reference does not establish an exact supported patch version.
+External experiments identify Live 12.4.6 and 12.4.15b1. They are not this fork's acceptance results.
 
-[Producer Pal's experiments](https://github.com/adamjmurray/producer-pal/blob/main/dev/live-api/arrangement-automation.md) report the same limitation on Live 12.4.6.
-Their investigation also covers the 12.4.15b1 LOM allowlist.
-These are external observations, not acceptance results for this fork.
+## Targeting and validation
 
-The experiments describe three alternatives:
+`inspect_arrangement` returns scoped clip, track, and parameter references.
+Surviving objects retain references across unrelated list changes. Deleted objects and previous script instances produce stale-reference errors.
+Device paths and indices are zero-based. Parameter references identify live objects, not saved XML IDs.
+Saved XML paths distinguish source parameter candidates. The agent must not infer a live parameter identity from a similar name.
 
-1. Read exact breakpoints and curves from a saved `.als` snapshot.
-2. Read sampled values through playhead movement and later parameter reads.
-3. Write lanes through Session-envelope carrier clips, then restore displaced Arrangement clips from parked native copies.
+`preview_arrangement_edit` validates the target, clip type, Live version, bounds, and operation-specific ranges.
+It reports affected ranges and the reconstruction requirement without changing the Set.
+`execute_arrangement_edit` requires explicit authorization and an existing saved recovery `.als` file.
+A changed target track invalidates the plan. Completed plans cannot be reused.
+Clip edits keep automation at absolute timeline positions. Moving automation requires a separate, explicitly previewed automation edit.
 
-Each alternative changes the original guarantees:
+## Save-then-inspect
 
-- A saved snapshot does not include unsaved edits. Snapshot identity and freshness need explicit validation.
-- Playhead sampling changes Set state and cannot reconstruct exact breakpoint positions or curves.
-- Carrier writes replace material temporarily. Restoration can fail after partial mutation.
-- Native Arrangement copies reportedly leave timeline automation at its original position.
-- The carrier route cannot clear a lane and does not cover every parameter class.
+The user approved the following workflow:
 
-The issue forbids silent destructive reconstruction and requires review of alternatives.
-No carrier stamping, GUI automation, source-file rewriting, or offline Set modification is implemented.
+1. Confirm the exact saved path belongs to the open Set.
+2. Attempt MCP saving through `song.save_project` when available.
+3. Verify a stable file update before snapshot inspection.
+4. If verification fails, request a manual save.
+5. After user confirmation, read the saved snapshot without another save attempt.
 
-## Proposed decision for review
+An unchanged file does not prove that saving failed. The Set can already be saved.
+A changed file does not prove that it belongs to the open Set. That association requires user confirmation.
+Snapshots report the path, digest, size, modification time, and verification method.
+Snapshot digests detect disk changes, not unsaved changes in Live.
+Before automation writes, the user or agent must confirm that no edits occurred after the save.
+The saved file digest is checked again before execution.
 
-Snapshot-backed inspection now has user approval through the save-then-inspect workflow.
-The transactional carrier workflow remains a separate proposal for supported track parameters.
-The agent creates and removes its own temporary Session clips. The user does not prepare Session slots.
-Occupied Session slots must remain unchanged.
+Saved inspection excludes Session envelopes and does not move the playhead or start playback.
+It preserves raw event attributes, including curve controls and Live sentinel times.
+It does not reinterpret the saved events as an exact live-state representation.
 
-### Save-then-inspect contract
+## Reconstruction and recovery
 
-1. Require an explicit path to the existing `.als` file. Do not guess the active Set from recent files.
-2. Record the file identity, modification time, size, and content digest before the save attempt.
-3. Attempt MCP `save_set` and inspect its structured `available` and `saved` result.
-4. If saving is unavailable, fails, or cannot be verified, request a manual save.
-5. Wait for a stable, readable saved file before parsing. Reject file changes during inspection.
-6. Report the snapshot path, digest, modification time, and verification method with inspection results.
-7. Reject stale snapshot-dependent mutations after further edits until another save and inspection completes.
+The [reconstruction contract](arrangement-reconstruction-contract.md) defines preservation and partial-failure behavior.
+Reconstruction requires separate authorization. It never creates tracks.
+The agent creates its own temporary Session clips and, when necessary, a temporary scene.
+Occupied Session slots remain unchanged.
 
-A changed file does not establish that it belongs to the active Set.
-An unchanged file does not establish that saving failed, because the Set can already be saved.
-The workflow must distinguish verified snapshots from unverified files without claiming live-state equivalence.
+Audio carriers require a separate preparation request because Live defers warping changes.
+A `prepared` response retains the plan. The agent executes it again after the next Live update or cancels it.
+Preparation has a separate undo step. The final Arrangement edit requests one further undo group.
+Cleanup retains changed temporary slots or occupied temporary scenes and reports warnings.
+Generated silent WAV files remain available for Undo. User source audio files remain untouched.
 
-This candidate needs approval before implementation, and it does not yet satisfy all acceptance criteria.
-The approval must define snapshot freshness, parameter exclusions, recovery behavior, and the treatment of timeline automation during clip moves.
+After partial failure, native holding copies remain available and appear in the response.
+The tool reports completed changes and the saved recovery point. It does not claim automatic rollback.
+No production Set received edit tests during development.
 
-If those restrictions are unacceptable, the complete issue remains blocked on a native API or another approved editing mechanism.
-Implementing the first three capabilities alone must not close the issue.
+## Automated verification and remaining acceptance
 
-## Current code and verification
+Unit tests cover scoped references, stale plans, invalid ranges, authorization, overlap rejection, and note preservation.
+State-machine tests model loops, source offsets, warped audio, boundary splits, native-copy recovery, and scratch cleanup.
+Other tests cover deferred audio preparation, cancellation, replaced temporary slots, snapshot freshness, and package/script matching.
+The installer bundles the engine into one Remote Script file and checks a per-build identifier.
 
-The fork contains a scoped-reference foundation and six isolated unit tests.
-The tests cover unrelated edits, deleted clips, deleted tracks, Set replacement, reconnects, and unknown handles.
-These references are not yet connected to command dispatch.
-
-The fork also exposes `save_and_inspect_arrangement_automation` through MCP.
-The tool requires an existing `.als` path and explicit confirmation that the path belongs to the open Set.
-It attempts the API save, then checks for a stable file update.
-An unavailable save or an unverified update returns `needs_manual_save` without automation data.
-After the user saves manually, `manual_save_confirmed=true` reads the stable snapshot without another API save.
-
-The result retains event attributes, sentinel times, curve controls, and complete envelope XML.
-It identifies track IDs and automation target IDs from the saved file.
-Parameter candidates are XML element names, not live parameter handles or verified unique addresses.
-Session clip envelopes are excluded. Snapshot data does not claim equivalence with unsaved Live state.
-
-An optional `expected_sha256` rejects a different saved snapshot.
-This digest check does not establish snapshot freshness relative to unsaved Live edits.
-Compressed and expanded size limits bound file reads.
-
-The full fork test suite reports 145 passed and one skipped.
-Lint passes for the new implementation and related registration tests.
-These automated results do not establish Live API support or acceptance.
-
-No Live commands ran during this investigation. No acceptance checks passed yet.
-No installer changes or package-pin changes were made.
-
-## Sources
-
-- [Official LOM version](https://docs.cycling74.com/apiref/lom/)
-- [Official Track API](https://docs.cycling74.com/apiref/lom/track/)
-- [Official Clip API](https://docs.cycling74.com/apiref/lom/clip/)
-- [Python Track runtime reference](https://midiremotescripts.structure-void.com/reference/live12/Live.Track.runtime)
-- [Python Clip runtime reference](https://midiremotescripts.structure-void.com/reference/live12/Live.Clip.runtime)
-- [Arrangement automation experiments](https://github.com/adamjmurray/producer-pal/blob/main/dev/live-api/arrangement-automation.md)
-- [Session-envelope experiments](https://github.com/adamjmurray/producer-pal/blob/main/dev/live-api/clip-envelopes.md)
-
-Search records: `/tmp/ableton-arrangement-api.json` and `/tmp/ableton-arrangement-blockers.json`.
+These tests use doubles rather than a running Live instance.
+They do not establish source-offset playback, actual lane preservation, or Live undo behavior.
+The [acceptance guide](arrangement-acceptance.md) covers those checks and the bars 17–33 composition.
+Issue #14 remains open until the user completes acceptance.

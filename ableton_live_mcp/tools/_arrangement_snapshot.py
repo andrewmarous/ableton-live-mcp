@@ -3,6 +3,7 @@
 import gzip
 import hashlib
 import io
+import os
 import time
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -18,12 +19,15 @@ class SnapshotError(ValueError):
 
 def _read_once(path):
     with path.open("rb") as stream:
-        before = path.stat()
+        before = os.fstat(stream.fileno())
         data = stream.read(MAX_COMPRESSED_BYTES + 1)
-        after = path.stat()
+        after = os.fstat(stream.fileno())
+        current = path.stat()
+
     def identity(s):
         return (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns)
-    if identity(before) != identity(after):
+
+    if identity(before) != identity(after) or identity(after) != identity(current):
         raise SnapshotError("Set file changed during inspection; save and retry")
     if len(data) > MAX_COMPRESSED_BYTES:
         raise SnapshotError("Compressed Set exceeds the 64 MiB inspection limit")
@@ -64,28 +68,46 @@ def read_snapshot(path, expected_sha256=None, settle_seconds=0.1):
         lanes = track.findall("AutomationEnvelopes/Envelopes/AutomationEnvelope")
         name = track.find("Name/EffectiveName")
         addresses = {}
-        for node in track.iter():
+        xml_paths = {}
+
+        def visit(node, prefix):
+            label = node.tag + ("[Id=" + node.get("Id") + "]" if node.get("Id") else "")
+            node_path = prefix + "/" + label
             target = node.find("AutomationTarget")
             if target is not None and target.get("Id") is not None:
                 addresses.setdefault(target.get("Id"), []).append(node.tag)
+                xml_paths.setdefault(target.get("Id"), []).append(node_path)
+            for child in node:
+                visit(child, node_path)
+
+        visit(track, "")
         for lane in lanes:
             target = lane.find("EnvelopeTarget/PointeeId")
             target_id = target.get("Value") if target is not None else None
             events = lane.find("Automation/Events")
-            result.append({
-                "track_id": track.get("Id"), "track_type": track.tag,
-                "track_name": name.get("Value") if name is not None else None,
-                "envelope_id": lane.get("Id"), "target_id": target_id,
-                "parameter_candidates": addresses.get(target_id, []),
-                "events": [
-                    {"type": event.tag, "attributes": dict(event.attrib)}
-                    for event in events
-                ] if events is not None else [],
-                "raw_envelope_xml": ET.tostring(lane, encoding="unicode"),
-            })
+            result.append(
+                {
+                    "track_id": track.get("Id"),
+                    "track_type": track.tag,
+                    "track_name": name.get("Value") if name is not None else None,
+                    "envelope_id": lane.get("Id"),
+                    "target_id": target_id,
+                    "parameter_candidates": addresses.get(target_id, []),
+                    "parameter_xml_paths": xml_paths.get(target_id, []),
+                    "events": [
+                        {"type": event.tag, "attributes": dict(event.attrib)} for event in events
+                    ]
+                    if events is not None
+                    else [],
+                    "raw_envelope_xml": ET.tostring(lane, encoding="unicode"),
+                }
+            )
     return {
-        "path": str(path), "sha256": digest, "size": len(data),
-        "mtime_ns": identity[3], "creator": root.get("Creator"),
+        "path": str(path),
+        "sha256": digest,
+        "size": len(data),
+        "mtime_ns": identity[3],
+        "creator": root.get("Creator"),
         "scope": "saved_arrangement_automation_only",
         "time_coordinates": "absolute Arrangement beats; raw Live sentinel times retained",
         "interpolation": "raw event attributes and XML retained; not interpreted",
@@ -94,30 +116,49 @@ def read_snapshot(path, expected_sha256=None, settle_seconds=0.1):
     }
 
 
-def save_then_inspect(path, save, active_set_confirmed=False,
-                      manual_save_confirmed=False, expected_sha256=None):
+def save_then_inspect(
+    path, save, active_set_confirmed=False, manual_save_confirmed=False, expected_sha256=None
+):
     """Never treat an API success response alone as proof of a disk save."""
     if not active_set_confirmed:
-        return {"status": "needs_active_set_confirmation",
-                "message": "Confirm this exact path belongs to the open Set before saving"}
+        return {
+            "status": "needs_active_set_confirmation",
+            "message": "Confirm this exact path belongs to the open Set before saving",
+        }
     before = read_snapshot(path)
     if manual_save_confirmed:
         before.update(status="snapshot_ready", verification="user_confirmed_manual_save")
         if expected_sha256 is not None and before["sha256"] != expected_sha256:
             raise SnapshotError("Saved Set differs from the expected snapshot; inspect again")
         return before
-    save_result = save()
-    if not isinstance(save_result, dict) or not save_result.get("available") or not save_result.get("saved"):
-        return {"status": "needs_manual_save", "save_result": save_result,
-                "message": "Save this Set in Live, then retry with manual_save_confirmed=true"}
+    try:
+        save_result = save()
+    except Exception as exc:
+        save_result = {"available": False, "error": str(exc)}
+    if (
+        not isinstance(save_result, dict)
+        or not save_result.get("available")
+        or not save_result.get("saved")
+    ):
+        return {
+            "status": "needs_manual_save",
+            "save_result": save_result,
+            "message": "Save this Set in Live, then retry with manual_save_confirmed=true",
+        }
     # A save can finish asynchronously. Poll for a stable, changed file.
     for _ in range(5):
         after = read_snapshot(path)
         if (after["sha256"], after["mtime_ns"]) != (before["sha256"], before["mtime_ns"]):
             if expected_sha256 is not None and after["sha256"] != expected_sha256:
                 raise SnapshotError("Saved Set differs from the expected snapshot; inspect again")
-            after.update(status="snapshot_ready", verification="api_success_and_file_change",
-                         save_result=save_result)
+            after.update(
+                status="snapshot_ready",
+                verification="api_success_and_file_change",
+                save_result=save_result,
+            )
             return after
-    return {"status": "needs_manual_save", "save_result": save_result,
-            "message": "No file update verified. The Set can already be saved; confirm a manual save before inspection"}
+    return {
+        "status": "needs_manual_save",
+        "save_result": save_result,
+        "message": "No file update verified. The Set can already be saved; confirm a manual save before inspection",
+    }
