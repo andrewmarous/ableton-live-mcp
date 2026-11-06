@@ -49,13 +49,22 @@ Conventions:
 
 - ALL indices are 0-based: track_index, clip_index (session slot), scene_index,
   return_index (0 = Return A), device_index (position in the track's chain).
-- Times, lengths, and positions are in BEATS (quarter notes), floats allowed.
+- Arrangement positions use absolute BEATS (quarter notes). Note times use source-relative beats.
+  Source markers in unwarped audio use native source units, not Arrangement bounds.
 - Volume faders are Live's normalized 0.0-1.0 range where 0.85 = 0 dB unity.
   Device parameters use each parameter's native range - call get_device_parameters
   first and read min/max/display before setting values.
-- MIDI notes: pitch 0-127 (60 = C3 in Live's naming), velocity 1-127,
+- MIDI notes: pitch 0-127 (60 = C3 in Live's naming), velocity 0-127,
   start_time/duration in beats relative to clip start.
-- Typical workflow: create_midi_track -> load_instrument_or_effect (or
+- Existing Arrangement clips: inspect_arrangement -> preview_arrangement_edit ->
+  execute_arrangement_edit. Require explicit authorization and a saved recovery .als.
+  Obtain separate reconstruction approval for trim/move/split/automation.
+  If execution returns prepared, execute that plan after the next Live update or cancel it.
+  Clip edits keep automation at absolute positions. Move automation through separate explicit edits.
+- Arrangement automation: confirm the saved Set path, then save_and_inspect_arrangement_automation.
+  If saving cannot be verified, request manual saving and confirmation before snapshot inspection.
+  Snapshots exclude unsaved changes. Read live parameter references before automation writes.
+- New material workflow: create_midi_track -> load_instrument_or_effect (or
   search_browser + load) -> create_clip -> add_notes_to_clip -> fire_clip /
   duplicate_to_arrangement. Check get_session_info / get_track_info first.
 - add_notes_to_clip REPLACES the clip's entire note content (use edit_notes for
@@ -63,7 +72,8 @@ Conventions:
   destination range. delete_track / delete_arrangement_clip shift later indices.
 - Transport tools report the PRE-command state (start_playback may answer
   "playing: false"); confirm with get_session_info.
-- Use batch_commands for multi-step edits: one round-trip, one undo step.
+- Use batch_commands for ordinary multi-step edits. Execute Arrangement plans separately;
+  they manage their own validation, preparation, recovery, and undo groups.
 - If every command suddenly times out, a modal dialog is open in Live (e.g. the
   trial nag) - it freezes the Remote Script until dismissed. Ask the user to
   press Enter in Live, then retry.

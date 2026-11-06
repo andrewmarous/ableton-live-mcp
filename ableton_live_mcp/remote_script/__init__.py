@@ -1606,6 +1606,9 @@ class AbletonMCP(ControlSurface):
     def _batch(self, commands):
         """Run a list of {type, params} commands atomically-ish: executed in one
         main-thread task, wrapped in a single undo step. Stops at first error."""
+        if any(self._BATCH_ALIASES.get(cmd.get("type", ""), cmd.get("type", ""))
+               in ("arrangement_execute", "execute_arrangement_edit") for cmd in commands):
+            raise ValueError("Execute Arrangement plans separately, outside batch")
         results = []
         self._song.begin_undo_step()
         try:
