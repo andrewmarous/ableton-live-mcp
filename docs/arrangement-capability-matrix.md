@@ -8,6 +8,9 @@ Status: blocked on an approved alternative for Arrangement automation. This is n
 - Maintain the bridge in https://github.com/andrewmarous/ableton-live-mcp.
 - Keep the existing package pin until matching server and Remote Script artifacts pass verification.
 - The user performs acceptance in a disposable Set before issue #14 closes.
+- The user approved save-then-inspect: attempt MCP `save_set`, verify the saved file, then inspect its automation.
+- If the API save is unavailable or unverified, request a manual save before snapshot inspection.
+- Keep edits on existing tracks. This decision does not authorize temporary clip replacement or carrier stamping.
 - Do not modify a production Set during development.
 
 The local fork is `../ableton-live-mcp`, on branch `issue-14-arrangement`.
@@ -57,9 +60,24 @@ No carrier stamping, GUI automation, source-file rewriting, or offline Set modif
 
 ## Proposed decision for review
 
-The closest candidate is explicit snapshot-backed inspection plus a transactional carrier workflow for supported track parameters.
+Snapshot-backed inspection now has user approval through the save-then-inspect workflow.
+The transactional carrier workflow remains a separate proposal for supported track parameters.
 The agent creates and removes its own temporary Session clips. The user does not prepare Session slots.
 Occupied Session slots must remain unchanged.
+
+### Save-then-inspect contract
+
+1. Require an explicit path to the existing `.als` file. Do not guess the active Set from recent files.
+2. Record the file identity, modification time, size, and content digest before the save attempt.
+3. Attempt MCP `save_set` and inspect its structured `available` and `saved` result.
+4. If saving is unavailable, fails, or cannot be verified, request a manual save.
+5. Wait for a stable, readable saved file before parsing. Reject file changes during inspection.
+6. Report the snapshot path, digest, modification time, and verification method with inspection results.
+7. Reject stale snapshot-dependent mutations after further edits until another save and inspection completes.
+
+A changed file does not establish that it belongs to the active Set.
+An unchanged file does not establish that saving failed, because the Set can already be saved.
+The workflow must distinguish verified snapshots from unverified files without claiming live-state equivalence.
 
 This candidate needs approval before implementation, and it does not yet satisfy all acceptance criteria.
 The approval must define snapshot freshness, parameter exclusions, recovery behavior, and the treatment of timeline automation during clip moves.
