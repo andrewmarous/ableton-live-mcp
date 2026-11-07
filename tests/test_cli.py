@@ -85,6 +85,8 @@ def test_installed_bundle_contains_engine_without_relative_imports():
     source = cli._remote_script_source().decode("utf-8")
     assert "from .arrangement_engine import" not in source
     assert "class ArrangementEngine:" in source
+    assert "from .creator_controls import" not in source
+    assert "class CreatorControls:" in source
     assert "development-unbundled" not in source
     compile(source, "installed-AbletonMCP", "exec")
     assert len(cli._remote_script_build_id()) == 64

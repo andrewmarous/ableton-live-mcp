@@ -8,10 +8,10 @@ so adding a module means editing one place and the two stay in sync.
 
 # group -> the tool modules that implement it.
 GROUP_MODULES = {
-    "session": ["session"],
-    "tracks": ["tracks"],
-    "clips": ["clips"],
-    "devices": ["devices", "device_kb"],
+    "session": ["session", "scene_controls"],
+    "tracks": ["tracks", "mixer_controls"],
+    "clips": ["clips", "launch_controls"],
+    "devices": ["devices", "device_kb", "simpler_controls"],
     "browser": ["browser"],
     "arrangement": ["arrangement"],
     "generators": ["generators", "generators_advanced", "motif"],
@@ -24,10 +24,10 @@ GROUP_MODULES = {
 
 # group -> one-line summary for agent orientation (describe_capabilities).
 GROUP_DESCRIPTIONS = {
-    "session": "transport, tempo, tap tempo, groove/swing, scenes, locators, record modes, song scale and tuning, Ableton Link, one-call snapshot",
-    "tracks": "create/delete MIDI/audio/return tracks, delete devices, take lanes, group fold, volume/pan/mute/solo/arm/sends, routing, meters, crossfader",
-    "clips": "create clips, write/edit MIDI notes (probability), quantize with strength, groove, loop, warp, pitch/gain",
-    "devices": "browse/search and load devices onto any track incl Master and Returns, read/set any param, sidechain routing, rack macro variations, Simpler slicing, per-pad drum control, device knowledge base",
+    "session": "transport, tempo, tap tempo, groove/swing, scenes, locators, record modes, song scale and tuning, Ableton Link, one-call snapshot, scene tempo and meter overrides",
+    "tracks": "create/delete MIDI/audio/return tracks, delete devices, take lanes, group fold, volume/pan/mute/solo/arm/sends, routing, meters, crossfader, cue volume, split-stereo pan, return mixer controls",
+    "clips": "create clips, write/edit MIDI notes (probability), quantize with strength, groove, loop, warp, pitch/gain, launch mode, quantization, legato and triggering",
+    "devices": "browse/search and load devices onto any track incl Master and Returns, read/set any param, sidechain routing, rack macro variations, Simpler slicing, per-pad drum control, device knowledge base, Simpler sample regions, loops and slices",
     "browser": "navigate the browser, load, and preview samples and presets",
     "arrangement": "inspect scoped Arrangement targets, preview and execute direct clip/note/audio edits and guarded timeline automation writes",
     "generators": "drum patterns, euclidean rhythms, chord progressions, jazz voicings, voice-leading melodies, walking bass, genre progressions, humanize, motif transforms, minimalist processes, session setup",

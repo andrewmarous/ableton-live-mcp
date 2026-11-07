@@ -9,7 +9,7 @@ Production edits remain outside this test.
 ## 1. Install the candidate
 
 The fork checkout is next to `ableton-ctrl` at `../ableton-live-mcp`.
-The candidate package version is `1.8.2.dev14`.
+The candidate package version is `1.8.2.dev15`.
 These commands do not edit the open Set. Installation replaces the Remote Script after a backup.
 
 1. Save any open production Set.
@@ -204,3 +204,15 @@ A partial failure, cleanup warning, or unexplained state change blocks completio
 On partial failure, stop edits and retain reported native recovery copies.
 Use Undo or reopen the recovery Set after inspection.
 Keep issue #14 open until all required checks pass.
+
+## 7. Additional native creator controls
+
+The same candidate includes four additional feature groups awaiting Live acceptance:
+
+- [ ] Session launch mode, quantization, legato, velocity sensitivity, and explicit triggering
+- [ ] Scene tempo and time-signature overrides
+- [ ] Simpler sample metadata, regions, loop controls, playback modes, and slices
+- [ ] Master cue volume, split-stereo panning, and return mixer controls
+
+Use the [creator controls acceptance guide](creator-controls-acceptance.md) for procedures and expected results.
+Record these checks separately from issue #14's Arrangement requirements.

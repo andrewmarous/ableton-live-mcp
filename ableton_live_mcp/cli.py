@@ -28,10 +28,19 @@ def _remote_script_source():
     folder = resources.files(__package__).joinpath("remote_script")
     source = folder.joinpath("__init__.py").read_text(encoding="utf-8")
     engine = folder.joinpath("arrangement_engine.py").read_text(encoding="utf-8")
-    marker = "from .arrangement_engine import ArrangementEngine  # bundled by installer"
-    if source.count(marker) != 1:
-        raise ValueError("Remote Script bundle marker is missing or ambiguous")
-    bundled = source.replace(marker, engine)
+    bundled = source
+    for module, class_name, content in (
+        ("arrangement_engine", "ArrangementEngine", engine),
+        (
+            "creator_controls",
+            "CreatorControls",
+            folder.joinpath("creator_controls.py").read_text(encoding="utf-8"),
+        ),
+    ):
+        marker = f"from .{module} import {class_name}  # bundled by installer"
+        if bundled.count(marker) != 1:
+            raise ValueError("Remote Script bundle marker is missing or ambiguous")
+        bundled = bundled.replace(marker, content)
     build_id = hashlib.sha256(bundled.encode("utf-8")).hexdigest()
     return bundled.replace(
         'BRIDGE_BUILD_ID = "development-unbundled"',

@@ -5,7 +5,18 @@ from types import SimpleNamespace
 import pytest
 
 
-@pytest.mark.parametrize("command", ["arrangement_execute", "execute_arrangement_edit"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "arrangement_execute",
+        "execute_arrangement_edit",
+        "set_session_launch_settings",
+        "set_scene_musical_settings",
+        "set_simpler_sample_controls",
+        "edit_simpler_slice",
+        "set_mixer_controls",
+    ],
+)
 def test_arrangement_execution_is_rejected_before_any_batch_mutation(command):
     path = Path(__file__).parents[1] / "ableton_live_mcp/remote_script/__init__.py"
     tree = ast.parse(path.read_text())

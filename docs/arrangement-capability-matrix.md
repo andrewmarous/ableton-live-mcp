@@ -4,7 +4,7 @@ Status: acceptance candidate. No Live acceptance result is claimed.
 
 The implementation targets Live 12.4 or later. Acceptance uses the latest stable release available to the user.
 The maintainer fork is https://github.com/andrewmarous/ableton-live-mcp, branch `issue-14-arrangement`.
-The starting upstream source is tag `v1.8.1`. The candidate version is `1.8.2.dev14`.
+The starting upstream source is tag `v1.8.1`. The candidate version is `1.8.2.dev15`.
 Older Live versions receive a structured `unsupported_version` error for the new commands.
 No cross-platform or edition-specific acceptance result exists yet.
 

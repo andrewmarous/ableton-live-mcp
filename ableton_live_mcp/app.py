@@ -56,6 +56,12 @@ Conventions:
   first and read min/max/display before setting values.
 - MIDI notes: pitch 0-127 (60 = C3 in Live's naming), velocity 0-127,
   start_time/duration in beats relative to clip start.
+- Native creator controls expose Session launch settings, scene tempo/meter overrides,
+  Simpler sample regions/slices/loops, and track/return/master mixer controls.
+  Inspect supported fields and native ranges first. Markers and slices in Simpler use sample frames.
+  Change playback/panning mode separately, then inspect before mode-specific edits.
+  Creator setting tools manage their own undo groups; execute them outside batch_commands.
+  Stop on partial failures. Inspect unconfirmed readbacks rather than blindly retrying.
 - Existing Arrangement clips: inspect_arrangement -> preview_arrangement_edit ->
   execute_arrangement_edit. Require explicit authorization and a saved recovery .als.
   Obtain separate reconstruction approval for trim/move/split/automation.
