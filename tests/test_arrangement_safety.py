@@ -50,7 +50,15 @@ def test_fractional_detune_and_correct_upper_limit(engine):
 
 
 @pytest.fixture
-def warped(engine):
+def warped(engine, monkeypatch):
+    import Live
+
+    class WarpMarker:
+        def __init__(self, sample_time, beat_time):
+            self.sample_time = sample_time
+            self.beat_time = beat_time
+
+    monkeypatch.setattr(Live.Clip, "WarpMarker", WarpMarker, raising=False)
     clip = engine.song.tracks[0].arrangement_clips[0]
     clip.is_midi_clip, clip.is_audio_clip = False, True
     clip.sample_rate, clip.sample_length = 44100, 44100 * 4
@@ -59,12 +67,14 @@ def warped(engine):
         {"beat_time": 4, "sample_time": 2},
         {"beat_time": 8, "sample_time": 4},
     ]
-    clip.add_warp_marker = lambda marker: clip.warp_markers.append(
-        {
-            "beat_time": marker["beat_time"],
-            "sample_time": marker.get("sample_time", marker["beat_time"] / 2),
-        }
-    )
+
+    def add(marker):
+        if not isinstance(marker, WarpMarker):
+            raise TypeError("Live requires a native WarpMarker, not a dictionary")
+        clip.warp_markers.append({"beat_time": marker.beat_time, "sample_time": marker.sample_time})
+
+    clip.add_warp_marker = add
+    clip.beat_to_sample_time = lambda beat: beat / 2
 
     def move(beat, distance):
         next(m for m in clip.warp_markers if m["beat_time"] == beat)["beat_time"] += distance
@@ -74,6 +84,15 @@ def warped(engine):
         next(m for m in clip.warp_markers if m["beat_time"] == beat)
     )
     return clip
+
+
+def test_inferred_warp_time_uses_validated_seconds_not_native_frame_conversion(engine, warped):
+    warped.beat_to_sample_time = lambda beat: beat * 22050
+    result = execute(
+        engine, preview(engine, operation="warp_marker", action="add", marker={"beat_time": 2})
+    )
+    assert result["status"] == "edited"
+    assert {"beat_time": 2, "sample_time": 1} in result["observed"]["warp_markers"]
 
 
 def test_dict_warp_markers_are_inspectable(engine, warped):

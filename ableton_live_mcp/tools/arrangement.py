@@ -1,6 +1,7 @@
 """Arrangement view, timeline placement, and clip automation."""
 
 import json
+import os
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
@@ -8,6 +9,11 @@ from mcp.types import ToolAnnotations
 from ..app import mcp
 from ..connection import get_ableton_connection
 from ._util import ClipIndex, DeviceIndex, DeviceParameter, TrackIndex
+
+
+def _require_recovery_point():
+    # Only an explicit opt-out disables the safe default. Not a tool argument.
+    return os.environ.get("ABLETON_REQUIRE_RECOVERY_ALS", "true").strip().lower() != "false"
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
@@ -48,9 +54,12 @@ def preview_arrangement_edit(ctx: Context, request: dict) -> str:
     returns, master automation, and destructive overlap policies are rejected.
     Source markers do not trim timeline bounds. Existing timeline automation
     remains at absolute positions during clip edits; it does not move with clips.
-    Execute only after explicit user authorization and a saved recovery point.
+    Execute only after explicit user authorization. A saved recovery point is
+    required unless the user disabled it in the MCP server configuration.
     """
-    result = get_ableton_connection().send_command("arrangement_preview", request)
+    result = get_ableton_connection().send_command(
+        "arrangement_preview", {**request, "require_recovery_point": _require_recovery_point()}
+    )
     return json.dumps(result, indent=2)
 
 
@@ -65,7 +74,9 @@ def execute_arrangement_edit(
 ) -> str:
     """Execute a previewed edit. authorized requires explicit user approval.
 
-    recovery_point must be an existing saved .als file. A changed target track
+    recovery_point must be an existing saved .als file by default. The user can
+    set ABLETON_REQUIRE_RECOVERY_ALS=false in the MCP server environment to opt out.
+    Explicit edit and reconstruction authorization remain required. A changed target track
     invalidates the plan. Audio reconstruction can return status prepared:
     invoke this tool again with the same plan after Live's next update tick,
     or set cancel=true to remove owned temporary clips. Preparation has its own
@@ -82,6 +93,7 @@ def execute_arrangement_edit(
             "recovery_point": recovery_point,
             "reconstruction_authorized": reconstruction_authorized,
             "cancel": cancel,
+            "require_recovery_point": _require_recovery_point(),
         },
     )
     return json.dumps(result, indent=2)

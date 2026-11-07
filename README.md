@@ -183,6 +183,28 @@ Unset loads everything.
 - Transport replies report the state before the command ran. Confirm with
   `get_session_info`.
 
+## Optional Arrangement recovery file
+
+By default, Arrangement execution requires an existing, nonempty `.als` recovery file.
+To disable this requirement for disposable Sets, add this environment configuration to your MCP server entry:
+
+```json
+"env": {
+  "ABLETON_REQUIRE_RECOVERY_ALS": "false"
+}
+```
+
+Restart the MCP server after configuration changes.
+Install the matching Remote Script and restart Live after updating plugin code.
+Only `false` disables the requirement. Unset or unrecognized values keep it enabled.
+This is user configuration, not an argument that the agent can change in an edit request.
+
+Explicit edit authorization, reconstruction authorization, stale-plan checks, and automation snapshot checks remain required.
+If you supply a recovery path, it must still reference an existing, nonempty `.als` file.
+Preview and execution responses report the recovery policy. Execution warns when no recovery file was supplied.
+Without a recovery file, recovery can depend on Undo and retained native copies.
+Automation still requires a saved, current Set snapshot.
+
 ## Troubleshooting
 
 - `AbletonMCP` is missing from the Control Surface list: the folder has to be named

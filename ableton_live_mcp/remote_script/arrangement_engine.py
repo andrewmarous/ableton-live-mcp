@@ -26,6 +26,14 @@ def _number(value, low, high, name):
     return value
 
 
+def _property_matches(observed, requested):
+    if isinstance(requested, bool) or isinstance(observed, bool):
+        return type(observed) is type(requested) and observed == requested
+    if isinstance(observed, (int, float)) and isinstance(requested, (int, float)):
+        return math.isclose(observed, requested, rel_tol=1e-6, abs_tol=1e-7)
+    return observed == requested
+
+
 class ArrangementEngine:
     MAX_BEAT = 1576800.0
     NOTE_FIELDS = (
@@ -245,6 +253,11 @@ class ArrangementEngine:
         audio = {"gain", "pitch_coarse", "pitch_fine", "warping", "warp_mode"}
         if not clip.is_audio_clip and set(properties) & audio:
             raise ArrangementError("wrong_clip_type", "Audio properties require an audio clip")
+        if clip.is_audio_clip and properties.get("looping", clip.looping) != clip.looping:
+            if set(properties) & {"start_marker", "end_marker", "loop_start", "loop_end"}:
+                raise ArrangementError(
+                    "mode_change", "Change looping separately, then inspect before setting markers"
+                )
         if "warping" in properties and properties["warping"] != clip.warping:
             if set(properties) & {"start_marker", "end_marker", "loop_start", "loop_end"}:
                 raise ArrangementError(
@@ -325,7 +338,23 @@ class ArrangementEngine:
                 if not hasattr(clip, method):
                     raise ArrangementError("unsupported_api", "Missing MIDI method: " + method)
         else:
-            self._validate_properties(clip, request.get("properties", {}))
+            request = dict(request)
+            properties = dict(request.get("properties", {}))
+            if clip.is_audio_clip and not properties.get("looping", clip.looping):
+                # Unlooped Arrangement audio uses loop_start as its effective
+                # source offset. A start_marker-only write is ignored by Live.
+                if "start_marker" in properties:
+                    if (
+                        "loop_start" in properties
+                        and properties["loop_start"] != properties["start_marker"]
+                    ):
+                        raise ArrangementError(
+                            "invalid_properties",
+                            "Unlooped audio start_marker and loop_start must agree",
+                        )
+                    properties["loop_start"] = properties["start_marker"]
+            request["properties"] = properties
+            self._validate_properties(clip, properties)
         if len(self.plans) >= 64:
             disposable = next((key for key in self.plans if key not in self.prepared), None)
             if disposable is None:
@@ -341,25 +370,36 @@ class ArrangementEngine:
             "affected_ranges": ranges,
             "automation_policy": "keep_absolute_timeline; clip copies do not copy track lanes",
             "undo": "one Live undo group requested; verify during acceptance",
-            "requires": "explicit edit authorization and a saved recovery point",
+            "requires": (
+                "explicit edit authorization and a saved recovery point"
+                if request.get("require_recovery_point") is not False
+                else "explicit edit authorization; recovery requirement disabled by configuration"
+            ),
+            "recovery_point_required": request.get("require_recovery_point") is not False,
             "reconstruction_required": operation in ("trim", "move", "split", "automation"),
             "reconstruction_contract": "docs/arrangement-reconstruction-contract.md",
             "temporary_tracks": 0,
+            "normalized_properties": request.get("properties", {}),
         }
 
     def execute(self, params):
         self._version()
-        if params.get("authorized") is not True or not params.get("recovery_point"):
+        recovery_required = params.get("require_recovery_point") is not False
+        if params.get("authorized") is not True or (
+            recovery_required and not params.get("recovery_point")
+        ):
             raise ArrangementError(
                 "authorization_required", "Authorize this edit and provide the saved recovery point"
             )
-        recovery = os.path.expanduser(params["recovery_point"])
-        if not recovery.lower().endswith(".als") or not os.path.isfile(recovery):
-            raise ArrangementError(
-                "recovery_required", "Recovery point must be an existing saved .als file"
-            )
-        if os.path.getsize(recovery) == 0:
-            raise ArrangementError("recovery_required", "Recovery Set is empty")
+        recovery_point = params.get("recovery_point", "")
+        if recovery_required or recovery_point:
+            recovery = os.path.expanduser(recovery_point)
+            if not recovery.lower().endswith(".als") or not os.path.isfile(recovery):
+                raise ArrangementError(
+                    "recovery_required", "Recovery point must be an existing saved .als file"
+                )
+            if os.path.getsize(recovery) == 0:
+                raise ArrangementError("recovery_required", "Recovery Set is empty")
         token = params.get("plan")
         plan = self.plans.get(token)
         if plan is None:
@@ -433,7 +473,14 @@ class ArrangementEngine:
             elif operation == "warp_marker":
                 action = request["action"]
                 if action == "add":
-                    clip.add_warp_marker(dict(request["marker"]))
+                    import Live
+
+                    marker = request["marker"]
+                    # Preview resolves omitted times in seconds from the warp grid.
+                    # beat_to_sample_time uses native sample-frame coordinates.
+                    clip.add_warp_marker(
+                        Live.Clip.WarpMarker(marker["sample_time"], marker["beat_time"])
+                    )
                 elif action == "move":
                     clip.move_warp_marker(
                         request["beat_time"], request["destination_beat"] - request["beat_time"]
@@ -458,7 +505,9 @@ class ArrangementEngine:
             else:
                 properties = request["properties"]
                 # Move interval ends in an order that never crosses current boundaries.
-                for start, end in (("start_marker", "end_marker"), ("loop_start", "loop_end")):
+                # Live can reset the source start when loop boundaries change.
+                # Apply the source interval last so explicit markers survive.
+                for start, end in (("loop_start", "loop_end"), ("start_marker", "end_marker")):
                     if end in properties and properties[end] > getattr(clip, start):
                         setattr(clip, end, properties[end])
                         self._progress.append("set " + end)
@@ -479,10 +528,14 @@ class ArrangementEngine:
                 "pending_properties": [
                     key
                     for key, value in request.get("properties", {}).items()
-                    if result.get(key) != value
+                    if not _property_matches(result.get(key), value)
                 ],
                 "completed": list(self._progress),
-                "recovery_point": params["recovery_point"],
+                "recovery_point": recovery_point or None,
+                "recovery_point_required": recovery_required,
+                "warnings": []
+                if recovery_point
+                else ["No saved recovery Set was supplied; recovery may be limited to Undo."],
                 "cleanup_warnings": self._cleanup_warnings,
             }
         except Exception as exc:
@@ -491,8 +544,16 @@ class ArrangementEngine:
                 "code": "mutation_failed",
                 "message": str(exc),
                 "completed": list(self._progress),
-                "recovery": "Stop edits. Inspect, then Undo or reopen the recovery Set.",
-                "recovery_point": params["recovery_point"],
+                "recovery": (
+                    "Stop edits. Inspect, then Undo or reopen the recovery Set."
+                    if recovery_point
+                    else (
+                        "Stop edits. Inspect retained copies, then Undo. "
+                        "No saved recovery Set was supplied."
+                    )
+                ),
+                "recovery_point": recovery_point or None,
+                "recovery_point_required": recovery_required,
                 "retained_recovery_copies": [
                     self._clip(t, c) for t, c in self._parked if self._present(t, c)
                 ],
@@ -506,7 +567,10 @@ class ArrangementEngine:
 
     def _write_notes(self, clip, request):
         operation = request["operation"]
-        existing = list(clip.get_all_notes_extended())
+        # Live requires the native note vector returned by this API, not a
+        # Python list/tuple of its elements, for apply_note_modifications.
+        native_notes = clip.get_all_notes_extended()
+        existing = list(native_notes)
         additions = [self._note(n) for n in request.get("add", [])]
         if operation == "replace_notes":
             additions = [self._note(n) for n in request.get("notes", [])]
@@ -525,12 +589,14 @@ class ArrangementEngine:
                 if key != "note_id":
                     setattr(note, key, value)
             modified.append(note)
+        if modified:
+            clip.apply_note_modifications(native_notes)
+            self._progress.append("updated selected notes")
+        # Apply updates before removing IDs so the original native vector never
+        # contains IDs deleted earlier in this request.
         if remove_ids:
             clip.remove_notes_by_id(tuple(remove_ids))
             self._progress.append("removed note IDs " + str(remove_ids))
-        if modified:
-            clip.apply_note_modifications(tuple(modified))
-            self._progress.append("updated selected notes")
         if specs:
             clip.add_new_notes(tuple(specs))
             self._progress.append("added notes")
@@ -603,6 +669,12 @@ class ArrangementEngine:
                 raise ArrangementError(
                     "invalid_marker", "Warp segments must be ordered and within 5..999 BPM"
                 )
+
+        if action == "add":
+            request["marker"] = {
+                "beat_time": beat,
+                "sample_time": next(m["sample_time"] for m in markers if m["beat_time"] == beat),
+            }
 
     def _parameter_objects(self, track):
         mixer = getattr(track, "mixer_device", None)
@@ -818,7 +890,9 @@ class ArrangementEngine:
             raise ArrangementError(
                 "warp_pending", "Carrier must finish warping before marker writes"
             )
-        carrier.looping = True
+        # Live clamps audio loop lengths below 0.25 beats when looping is on.
+        # Unlooped carriers retain exact short lengths for overlap truncation.
+        carrier.looping = not carrier.is_audio_clip
         carrier.loop_start = 0.0
         carrier.loop_end = float(length)
         carrier.start_marker = 0.0
