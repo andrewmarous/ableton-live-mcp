@@ -20,7 +20,7 @@ Follow this workflow:
 6. Use batch_commands for repetitive steps (one round-trip, one undo).
 7. fire_clip to audition; iterate on velocities/notes before arranging.
 8. Arrange with duplicate_to_arrangement (it overwrites the destination range),
-   then start_playback to review; confirm state via get_session_info."""
+   then play to review; confirm state via get_session_info."""
 
 
 @mcp.prompt()

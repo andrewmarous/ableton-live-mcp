@@ -109,7 +109,7 @@ def fire_clip(ctx: Context, track_index: TrackIndex, clip_index: ClipIndex) -> s
     The slot must contain a clip. Launching it takes Session control of that
     track and replaces any other playing Session clip on the same track; firing
     an already-playing clip may retrigger it according to its launch settings.
-    Use fire_scene to launch a whole row, or continue_playing for transport only.
+    Use fire_scene to launch a whole row, or play for transport only.
     """
     ableton = get_ableton_connection()
     ableton.send_command("fire_clip", {"track_index": track_index, "clip_index": clip_index})

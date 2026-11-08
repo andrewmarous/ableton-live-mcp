@@ -59,7 +59,9 @@ def test_every_server_tool_command_is_dispatched():
     handled = MUTATING.keys() | READONLY.keys()
     sent = set()
     for path in (ROOT / "ableton_live_mcp" / "tools").rglob("*.py"):
-        sent |= set(re.findall(r'send_command\(\s*["\']([a-z_]+)["\']', path.read_text()))
+        sent |= set(
+            re.findall(r'(?:send_command|creator_call)\(\s*["\']([a-z_]+)["\']', path.read_text())
+        )
     unknown = sent - handled
     assert not unknown, f"server sends commands the Remote Script does not handle: {unknown}"
 

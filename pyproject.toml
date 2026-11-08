@@ -1,6 +1,6 @@
 [project]
 name = "mcp-server-ableton-live"
-version = "1.8.1"
+version = "1.8.2.dev15"
 description = "Control Ableton Live 11/12 with 156 typed MCP tools for MIDI, devices, arrangement, mixing, automation, and offline .als analysis"
 readme = "README.md"
 requires-python = ">=3.10"

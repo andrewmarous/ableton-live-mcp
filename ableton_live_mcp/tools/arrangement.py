@@ -1,6 +1,7 @@
 """Arrangement view, timeline placement, and clip automation."""
 
 import json
+import os
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
@@ -8,6 +9,94 @@ from mcp.types import ToolAnnotations
 from ..app import mcp
 from ..connection import get_ableton_connection
 from ._util import ClipIndex, DeviceIndex, DeviceParameter, TrackIndex
+
+
+def _require_recovery_point():
+    # Only an explicit opt-out disables the safe default. Not a tool argument.
+    return os.environ.get("ABLETON_REQUIRE_RECOVERY_ALS", "true").strip().lower() != "false"
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def inspect_arrangement(ctx: Context, reference: str | None = None) -> str:
+    """Inspect Arrangement clips directly, including notes and source properties.
+
+    Omit reference to enumerate tracks and clips. Use returned scoped references,
+    not list indices, for later edits. Timeline positions are absolute beats.
+    Source markers are beats for MIDI/warped audio, seconds for unwarped audio.
+    This never launches clips or changes playback. Requires Live 12.4 or later.
+    """
+    result = get_ableton_connection().send_command("arrangement_inspect", {"reference": reference})
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def preview_arrangement_edit(ctx: Context, request: dict) -> str:
+    """Validate an edit without changing Live; return a single-use execution plan.
+
+    request requires reference and operation. duplicate takes destination (absolute
+    beats); copies are same-track and reject all overlaps. edit_notes takes add,
+    updates (each with note_id), and remove_ids. replace_notes takes notes and
+    explicitly replaces all notes. properties takes a properties dictionary.
+    warp_marker takes action add/move/remove. add takes marker {beat_time,
+    optional sample_time}; move takes beat_time and destination_beat; remove
+    takes beat_time. Sample times are source seconds, marker beats source-relative.
+    Terminal reference-marker edits and invalid warp segment tempos are rejected.
+    delete explicitly removes the referenced Arrangement clip.
+    trim takes absolute start/end inside the clip. move takes destination.
+    split takes an absolute beat; a split on either boundary is a no-op.
+    These operations use native holding copies and temporary Session clips,
+    never new tracks. They require separate reconstruction authorization.
+    automation takes start/end, a scoped parameter_reference from inspection,
+    points [{time, value}] including both boundaries, and interpolation linear
+    or step. Require snapshot_path, snapshot_sha256, snapshot_confirmed_current
+    after save-and-inspect. Supported parameters are enabled continuous mixer
+    and device parameters on regular tracks with audio output. Curved writes,
+    returns, master automation, and destructive overlap policies are rejected.
+    Source markers do not trim timeline bounds. Existing timeline automation
+    remains at absolute positions during clip edits; it does not move with clips.
+    Execute only after explicit user authorization. A saved recovery point is
+    required unless the user disabled it in the MCP server configuration.
+    """
+    result = get_ableton_connection().send_command(
+        "arrangement_preview", {**request, "require_recovery_point": _require_recovery_point()}
+    )
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=True))
+def execute_arrangement_edit(
+    ctx: Context,
+    plan: str,
+    authorized: bool = False,
+    recovery_point: str = "",
+    reconstruction_authorized: bool = False,
+    cancel: bool = False,
+) -> str:
+    """Execute a previewed edit. authorized requires explicit user approval.
+
+    recovery_point must be an existing saved .als file by default. The user can
+    set ABLETON_REQUIRE_RECOVERY_ALS=false in the MCP server environment to opt out.
+    Explicit edit and reconstruction authorization remain required. A changed target track
+    invalidates the plan. Audio reconstruction can return status prepared:
+    invoke this tool again with the same plan after Live's next update tick,
+    or set cancel=true to remove owned temporary clips. Preparation has its own
+    undo step; the Arrangement mutation requests one further undo group.
+    Inspect observed state and pending_properties after completion. A nonempty
+    cleanup_warnings list requires review. On partial failure, stop edits and
+    use Undo or reopen the recovery Set. Completed plans cannot be reused.
+    """
+    result = get_ableton_connection().send_command(
+        "arrangement_execute",
+        {
+            "plan": plan,
+            "authorized": authorized,
+            "recovery_point": recovery_point,
+            "reconstruction_authorized": reconstruction_authorized,
+            "cancel": cancel,
+            "require_recovery_point": _require_recovery_point(),
+        },
+    )
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=False))

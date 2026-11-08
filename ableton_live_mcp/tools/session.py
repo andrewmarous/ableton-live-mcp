@@ -1,6 +1,9 @@
 """Session, transport, tempo, scenes, locators, undo/redo tools."""
 
 import json
+import math
+import time
+from threading import RLock
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
@@ -48,25 +51,88 @@ def set_tempo(ctx: Context, tempo: float) -> str:
     return f"Set tempo to {tempo} BPM"
 
 
-@mcp.tool(annotations=ToolAnnotations(destructiveHint=False))
-def start_playback(ctx: Context) -> str:
-    """Start Arrangement playback from the current song time. NOTE: the response
-    reports the PRE-command state (may say playing=false right after starting) -
-    confirm with get_session_info.
-    """
-    ableton = get_ableton_connection()
-    ableton.send_command("start_playback")
-    return "Started playback"
+TRANSPORT_TIMEOUT = 3.0
+_TRANSPORT_LOCK = RLock()
+
+
+def _observe_transport(conn, predicate):
+    """Poll separate Live updates; mutation replies can contain pre-command state."""
+    deadline = time.monotonic() + TRANSPORT_TIMEOUT
+    while True:
+        observed = conn.send_command("get_session_info")
+        if predicate(observed):
+            return observed
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"Could not verify transport state: {json.dumps(observed)}")
+        time.sleep(0.05)
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=False))
-def stop_playback(ctx: Context) -> str:
-    """Stop playback. NOTE: the response reports the PRE-command state - confirm
-    with get_session_info.
+def play(ctx: Context, start_beat: ArrangementBeat | None = None) -> str:
+    """Play from an absolute Arrangement beat; 0 starts at the beginning.
+
+    Omit start_beat to resume the actual stopped position, or leave running
+    playback unchanged. An explicit beat repositions even while playing.
+    Returns observed playing state and position after a separate Live update.
+    Live requires starting transport before seeking reliably: a short fragment
+    of the previous position may sound. Use pre-roll for capture; this is not
+    sample-accurate or synchronized to an external recorder. Run separately
+    from batch_commands. Existing recording and loop settings remain active.
     """
-    ableton = get_ableton_connection()
-    ableton.send_command("stop_playback")
-    return "Stopped playback"
+    if start_beat is not None and (
+        isinstance(start_beat, bool) or not math.isfinite(start_beat) or start_beat < 0
+    ):
+        raise ValueError("start_beat must be a finite, nonnegative Arrangement beat")
+    with _TRANSPORT_LOCK:
+        conn = get_ableton_connection()
+        observed = conn.send_command("get_session_info")
+        if not observed["is_playing"]:
+            # continue_playing preserves the actual stopped position. start_playing
+            # instead uses Live's remembered start point, even after a stopped seek.
+            conn.send_command("continue_playing")
+            observed = _observe_transport(conn, lambda state: state["is_playing"])
+        if start_beat is not None:
+            seek_time = time.monotonic()
+            conn.send_command("set_current_song_time", {"time": start_beat})
+
+            def reached(state):
+                elapsed_beats = (time.monotonic() - seek_time) * state["tempo"] / 60.0
+                delta = state["current_song_time"] - start_beat
+                if state.get("loop") and state["loop_length"] > 0:
+                    loop_start = state["loop_start"]
+                    if loop_start <= start_beat < loop_start + state["loop_length"]:
+                        delta %= state["loop_length"]
+                return state["is_playing"] and 0 <= delta <= elapsed_beats + 1.0
+
+            observed = _observe_transport(conn, reached)
+        return json.dumps(
+            {
+                "is_playing": observed["is_playing"],
+                "current_song_time": observed["current_song_time"],
+                "requested_start_beat": start_beat,
+            },
+            indent=2,
+        )
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=False))
+def stop(ctx: Context) -> str:
+    """Stop transport and return the observed stopped position after a Live update.
+
+    Does not disable recording, change solo states, or stop Session clips.
+    Run separately from batch_commands.
+    """
+    with _TRANSPORT_LOCK:
+        conn = get_ableton_connection()
+        conn.send_command("stop_playback")
+        observed = _observe_transport(conn, lambda state: not state["is_playing"])
+        return json.dumps(
+            {
+                "is_playing": observed["is_playing"],
+                "current_song_time": observed["current_song_time"],
+            },
+            indent=2,
+        )
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=False))
@@ -99,7 +165,7 @@ def fire_scene(ctx: Context, scene_index: SceneIndex) -> str:
 
     This fires the row's clips together and can replace or stop clips currently
     playing on the affected tracks according to each slot's launch behavior.
-    Use fire_clip to launch only one track's clip, or start_playback when the
+    Use fire_clip to launch only one track's clip, or play when the
     intent is Arrangement transport rather than Session launching.
     """
     get_ableton_connection().send_command("fire_scene", {"scene_index": scene_index})
@@ -190,6 +256,8 @@ def batch_commands(ctx: Context, commands: list[dict]) -> str:
     server-side. Prefer this for multi-step edits: fewer round-trips, one undo
     reverts all.
     """
+    if any(command.get("type") in {"play", "stop"} for command in commands):
+        raise ValueError("Run play and stop as separate tools, outside batch_commands")
     result = get_ableton_connection().send_command("batch", {"commands": commands})
     return json.dumps(result, indent=2)
 
@@ -244,7 +312,7 @@ def set_record_mode(ctx: Context, enabled: ToggleState) -> str:
 
     `true` enables Arrangement recording; `false` disables it. Enabling alone
     does not record: arm the intended tracks with set_track_arm, then use
-    start_playback. Use set_session_record or trigger_session_record for Session
+    play. Use set_session_record or trigger_session_record for Session
     slots instead. Repeating the current state has no additional effect.
     """
     r = get_ableton_connection().send_command("set_record_mode", {"enabled": enabled})
@@ -257,14 +325,6 @@ def set_session_record(ctx: Context, enabled: bool) -> str:
     also enables MIDI overdub into playing clips)."""
     r = get_ableton_connection().send_command("set_session_record", {"enabled": enabled})
     return f"Session record: {r.get('session_record')}"
-
-
-@mcp.tool(annotations=ToolAnnotations(destructiveHint=False))
-def continue_playing(ctx: Context) -> str:
-    """Resume playback from the current position (start_playback restarts from
-    the playhead's last start point instead)."""
-    get_ableton_connection().send_command("continue_playing")
-    return "Playback continued"
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=False))
@@ -415,6 +475,38 @@ def get_scale_info(ctx: Context) -> str:
     set_song_scale; tune device parameters (e.g. Wavetable) with set_device_parameter."""
     r = get_ableton_connection().send_command("get_scale_info")
     return json.dumps(r, indent=2)
+
+
+@mcp.tool(annotations=ToolAnnotations(destructiveHint=False))
+def save_and_inspect_arrangement_automation(
+    ctx: Context,
+    path: str,
+    active_set_confirmed: bool = False,
+    manual_save_confirmed: bool = False,
+    expected_sha256: str | None = None,
+) -> str:
+    """Save the open Set and inspect its saved Arrangement automation.
+
+    Saving overwrites the existing Set file. Require user authorization and an
+    explicit existing .als path. Set active_set_confirmed only after the user
+    confirms that exact path belongs to the open Set. The API cannot verify
+    that association. If status is needs_manual_save, ask the user to save in
+    Live. Retry with manual_save_confirmed only after their confirmation.
+    No tracks or clips are created. Raw saved events are not unsaved Live state.
+    """
+    from ._arrangement_snapshot import save_then_inspect
+
+    try:
+        result = save_then_inspect(
+            path,
+            lambda: get_ableton_connection().send_command("try_save_project"),
+            active_set_confirmed,
+            manual_save_confirmed,
+            expected_sha256,
+        )
+    except (ValueError, OSError, EOFError) as exc:
+        result = {"status": "snapshot_error", "message": str(exc)}
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool(annotations=ToolAnnotations(destructiveHint=False))

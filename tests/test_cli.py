@@ -50,11 +50,46 @@ def test_doctor_requires_running_and_installed_version_match(tmp_path, monkeypat
     monkeypatch.setattr(cli, "_probe", lambda: {"tempo": 120, "bridge_version": "old"})
     assert cli.doctor(tmp_path, json_output=True) == 1
     capsys.readouterr()
-    monkeypatch.setattr(cli, "_probe", lambda: {"tempo": 120, "bridge_version": __version__})
+    monkeypatch.setattr(
+        cli,
+        "_probe",
+        lambda: {
+            "tempo": 120,
+            "bridge_version": __version__,
+            "bridge_build_id": cli._remote_script_build_id(),
+        },
+    )
     assert cli.doctor(tmp_path, json_output=True) == 0
     assert json.loads(capsys.readouterr().out)["ok"] is True
     cli._target(tmp_path).write_bytes(b"old script on disk")
     assert cli.doctor(tmp_path) == 1
+
+
+def test_doctor_rejects_same_version_different_running_build(tmp_path, monkeypatch, capsys):
+    cli.install(tmp_path)
+    capsys.readouterr()
+    monkeypatch.setattr(
+        cli,
+        "_probe",
+        lambda: {
+            "tempo": 120,
+            "bridge_version": __version__,
+            "bridge_build_id": "old-build",
+        },
+    )
+    assert cli.doctor(tmp_path, json_output=True) == 1
+    assert json.loads(capsys.readouterr().out)["running_script_matches"] is False
+
+
+def test_installed_bundle_contains_engine_without_relative_imports():
+    source = cli._remote_script_source().decode("utf-8")
+    assert "from .arrangement_engine import" not in source
+    assert "class ArrangementEngine:" in source
+    assert "from .creator_controls import" not in source
+    assert "class CreatorControls:" in source
+    assert "development-unbundled" not in source
+    compile(source, "installed-AbletonMCP", "exec")
+    assert len(cli._remote_script_build_id()) == 64
 
 
 @pytest.mark.parametrize("reply", [b'{"status":"error"}', b'{"status":"success","result":{}}'])

@@ -20,6 +20,9 @@ import uuid
 
 from _Framework.ControlSurface import ControlSurface
 
+from .arrangement_engine import ArrangementEngine  # bundled by installer
+from .creator_controls import CreatorControls  # bundled by installer
+
 # Socket the script listens on. Bind loopback only by default - this port drives
 # Live with no auth, so it must not be exposed to the network. If 9877 is taken,
 # set ABLETON_MCP_PORT (and the client's ABLETON_PORT to match). ABLETON_MCP_HOST
@@ -27,7 +30,8 @@ from _Framework.ControlSurface import ControlSurface
 DEFAULT_PORT = int(os.environ.get("ABLETON_MCP_PORT", "9877"))
 HOST = os.environ.get("ABLETON_MCP_HOST", "127.0.0.1")
 MAX_REQUEST_BYTES = 10 * 1024 * 1024  # backstop against a poisoned request buffer
-BRIDGE_VERSION = "1.8.1"
+BRIDGE_VERSION = "1.8.2.dev15"
+BRIDGE_BUILD_ID = "development-unbundled"
 
 
 def _display_number(text):
@@ -335,7 +339,24 @@ class AbletonMCP(ControlSurface):
     # ── Declarative command dispatch ─────────────────────────────────
     # ALL commands (mutating and read-only) are marshalled onto Live's main
     # thread by _process_command; the two dicts only document intent.
+    def _creator_controls(self, action, params):
+        return CreatorControls(self).dispatch(action, params)
+
+    def _arrangement(self, mode, params):
+        engine = getattr(self, "_arrangement_engine", None)
+        if engine is None or engine.song != self._song:
+            engine = ArrangementEngine(self)
+            self._arrangement_engine = engine
+        return engine.command(mode, params)
+
     _MUTATING_COMMANDS = {
+        "set_session_launch_settings": lambda s, p: s._creator_controls("set_launch", p),
+        "trigger_session_clip": lambda s, p: s._creator_controls("trigger", p),
+        "set_scene_musical_settings": lambda s, p: s._creator_controls("set_scene", p),
+        "set_simpler_sample_controls": lambda s, p: s._creator_controls("set_simpler", p),
+        "edit_simpler_slice": lambda s, p: s._creator_controls("edit_slice", p),
+        "set_mixer_controls": lambda s, p: s._creator_controls("set_mixer", p),
+        "arrangement_execute": lambda s, p: s._arrangement("execute", p),
         "create_midi_track": lambda s, p: s._create_midi_track(p.get("index", -1)),
         "create_audio_track": lambda s, p: s._create_audio_track(p.get("index", -1)),
         "create_return_track": lambda s, p: s._create_return_track(),
@@ -434,6 +455,12 @@ class AbletonMCP(ControlSurface):
     }
 
     _READONLY_COMMANDS = {
+        "get_session_launch_settings": lambda s, p: s._creator_controls("get_launch", p),
+        "get_scene_musical_settings": lambda s, p: s._creator_controls("get_scene", p),
+        "get_simpler_sample_controls": lambda s, p: s._creator_controls("get_simpler", p),
+        "get_mixer_controls": lambda s, p: s._creator_controls("get_mixer", p),
+        "arrangement_inspect": lambda s, p: s._arrangement("inspect", p),
+        "arrangement_preview": lambda s, p: s._arrangement("preview", p),
         "get_session_info": lambda s, p: s._get_session_info(),
         "get_track_info": lambda s, p: s._get_track_info(s._req(p, "track_index")),
         "get_return_tracks": lambda s, p: s._get_return_tracks(),
@@ -463,7 +490,7 @@ class AbletonMCP(ControlSurface):
     _ALL_COMMANDS = {**_MUTATING_COMMANDS, **_READONLY_COMMANDS}
 
     # Commands whose main-thread work can exceed the default 10 s budget.
-    _COMMAND_TIMEOUTS = {"create_audio_clip": 60.0}
+    _COMMAND_TIMEOUTS = {"create_audio_clip": 60.0, "arrangement_execute": 60.0}
 
     def _process_command(self, command):
         """Process a command from the client and return a response"""
@@ -584,6 +611,7 @@ class AbletonMCP(ControlSurface):
                 "clip_trigger_quantization": self._safe_song_property("clip_trigger_quantization", int, 4),
                 "live_version": self._live_version(),
                 "bridge_version": BRIDGE_VERSION,
+                "bridge_build_id": BRIDGE_BUILD_ID,
             }
             return result
         except Exception as e:
@@ -1592,6 +1620,12 @@ class AbletonMCP(ControlSurface):
     def _batch(self, commands):
         """Run a list of {type, params} commands atomically-ish: executed in one
         main-thread task, wrapped in a single undo step. Stops at first error."""
+        if any(self._BATCH_ALIASES.get(cmd.get("type", ""), cmd.get("type", ""))
+               in ("arrangement_execute", "execute_arrangement_edit",
+                   "set_session_launch_settings", "set_scene_musical_settings",
+                   "set_simpler_sample_controls", "edit_simpler_slice", "set_mixer_controls")
+               for cmd in commands):
+            raise ValueError("Execute Arrangement plans and creator settings separately, outside batch")
         results = []
         self._song.begin_undo_step()
         try:
