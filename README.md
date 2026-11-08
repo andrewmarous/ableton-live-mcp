@@ -29,7 +29,7 @@ The upstream `1.8.1` commands below do **not** install this candidate.
 **Website and installation guide: [abletonmcp.com](https://abletonmcp.com)**
 
 Control Ableton Live from an AI assistant. This is a Model Context Protocol (MCP)
-server that gives Claude, Cursor, Codex, or any MCP client 170 tools for building
+server that gives Claude, Cursor, Codex, or any MCP client 169 tools for building
 tracks, editing MIDI, loading instruments and effects, mixing, and mastering inside
 a running Ableton Live set, plus offline tools that read and diff saved `.als`
 project files with Live closed.
@@ -164,7 +164,7 @@ restarting Live keeps the bridge's snapshot format matched to the server.
 
 ## Focusing the toolset
 
-The server registers 170 tools. That is a lot for a model to choose from on a small
+The server registers 169 tools. That is a lot for a model to choose from on a small
 task. Set `ABLETON_TOOLSETS` to load only the groups you need, for example
 `ABLETON_TOOLSETS=session,tracks,clips,generators`. Groups (each may span several modules): `session`, `tracks`, `clips`, `devices`,
 `browser`, `arrangement`, `generators`, `audio`, `analysis`, `offline`, `recipes`.
@@ -180,8 +180,32 @@ Unset loads everything.
   few without touching the rest.
 - Placing a session clip into the arrangement overwrites whatever is under it, which
   is also how you replace a section.
-- Transport replies report the state before the command ran. Confirm with
-  `get_session_info`.
+- `play` and `stop` return the observed transport state after a separate Live update.
+  Other mutation replies can contain the state before the command ran.
+
+## Playback
+
+The transport surface contains two tools:
+
+- `play(start_beat=0)` plays from the beginning.
+- `play(start_beat=40)` plays from absolute Arrangement beat 40, including during playback.
+- `play()` resumes the actual stopped position. During playback, it leaves the position unchanged.
+- `stop()` stops transport and returns the observed stopped position.
+
+These tools replace `start_playback`, `continue_playing`, and `stop_playback`.
+Clients must refresh their tool list after the server upgrade.
+The legacy bridge commands remain available for internal compatibility.
+No Remote Script upgrade is required for this transport change.
+
+Live can ignore a stopped seek when playback starts.
+For an explicit beat, `play` starts transport first and then seeks while transport runs.
+Each step uses a separate Live update. The tool checks the resulting position and fails if verification times out.
+A short fragment of the previous position can sound before the seek.
+Playback is not sample-accurate or synchronized to an external recorder. Capture workflows need pre-roll.
+
+Run `play` and `stop` separately from `batch_commands`.
+Both tools preserve loop, recording, solo, and mute settings.
+Active Arrangement recording can therefore record when playback starts.
 
 ## Optional Arrangement recovery file
 
@@ -258,7 +282,7 @@ saved `.als` projects.
 
 ### How is this different from other Ableton MCP servers?
 
-This server exposes 170 specific, validated tools rather than an arbitrary-code
+This server exposes 169 specific, validated tools rather than an arbitrary-code
 execution tool. It includes destructive/read-only hints, workflow prompts, built-in
 music generators, mixing and analysis tools, and offline `.als`/`.adg` inspection.
 The Remote Script and MCP package are versioned and tested together.

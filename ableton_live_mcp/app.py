@@ -76,8 +76,10 @@ Conventions:
 - add_notes_to_clip REPLACES the clip's entire note content (use edit_notes for
   incremental changes). duplicate_to_arrangement OVERWRITES whatever overlaps the
   destination range. delete_track / delete_arrangement_clip shift later indices.
-- Transport tools report the PRE-command state (start_playback may answer
-  "playing: false"); confirm with get_session_info.
+- Use play(start_beat=0) to start from the beginning, or play(start_beat=N) for a passage.
+  Omit start_beat to resume the actual stopped position. Use stop to stop transport.
+  These tools return verified state and run separately from batch_commands.
+  Explicit starts can briefly sound the old position before seeking; use pre-roll.
 - Use batch_commands for ordinary multi-step edits. Execute Arrangement plans separately;
   they manage their own validation, preparation, recovery, and undo groups.
 - If every command suddenly times out, a modal dialog is open in Live (e.g. the
